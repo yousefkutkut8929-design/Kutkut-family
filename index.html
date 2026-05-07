@@ -834,6 +834,28 @@ function initTree(data){
 window.addEventListener('resize',fitView);
 document.addEventListener('keydown',e=>{ if(e.key==='Escape'){closeAdd();closeEdit();hideCtx();} });
 
+// ══════════════════════════════════════════
+// EXPOSE FUNCTIONS TO WINDOW
+// (required because type="module" isolates scope from HTML onclick)
+// ══════════════════════════════════════════
+window.enterTree    = enterTree;
+window.expandAll    = expandAll;
+window.collapseAll  = collapseAll;
+window.fitView      = fitView;
+window.resetTree    = resetTree;
+window.doSearch     = doSearch;
+window.openAdd      = openAdd;
+window.closeAdd     = closeAdd;
+window.doAdd        = doAdd;
+window.openEdit     = openEdit;
+window.closeEdit    = closeEdit;
+window.doEdit       = doEdit;
+window.clearEditPhoto = clearEditPhoto;
+window.previewPhoto = previewPhoto;
+window.ctxExpand    = ctxExpand;
+window.ctxCollapse  = ctxCollapse;
+window.doDelete     = doDelete;
+
 // Async startup — load from Firebase first
 (async ()=>{
   const startData = await loadData2();
