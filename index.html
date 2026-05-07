@@ -315,7 +315,6 @@ button, .nbox { touch-action:manipulation; }
 // ══════════════════════════════════════════
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-import { getStorage, ref as sRef, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
 
 // ══════════════════════════════════════════
 // DATA
@@ -344,7 +343,6 @@ const firebaseConfig = {
 
 const fbApp  = initializeApp(firebaseConfig);
 const db     = getDatabase(fbApp);
-const storage= getStorage(fbApp);
 
 const DB_TREE   = 'katkat/tree';
 const DB_PHOTOS = 'katkat/photos';
@@ -373,21 +371,22 @@ async function saveAll(){
   try {
     const treeObj = treeToObj(0);
     await set(ref(db, DB_TREE), treeObj);
-    // Save photos that are base64 (newly uploaded this session)
+
+    // Save photos as base64 directly in Realtime Database
+    // Compress each photo first to keep size small
     const photoUpdates = {};
     for(const [id, url] of Object.entries(photos)){
-      if(url && url.startsWith('data:')){
-        // Upload to Storage
-        const imgRef = sRef(storage, `katkat/photos/${id}.jpg`);
-        await uploadString(imgRef, url, 'data_url');
-        const dlUrl = await getDownloadURL(imgRef);
-        photos[id] = dlUrl;
-        photoUpdates[id] = dlUrl;
-      } else if(url) {
+      if(!url) continue;
+      if(url.startsWith('data:')){
+        // Compress image before saving
+        const compressed = await compressImage(url, 400, 0.7);
+        photoUpdates[id] = compressed;
+        photos[id] = compressed;
+      } else {
         photoUpdates[id] = url;
       }
     }
-    await set(ref(db, DB_PHOTOS), photoUpdates);
+    await set(ref(db, DB_PHOTOS), Object.keys(photoUpdates).length ? photoUpdates : null);
     flashSaved();
     setStatus('✅ محفوظ على السحابة','#81C784');
     setTimeout(()=>setStatus('🔥 متصل بـ Firebase','#81C784'),3000);
@@ -395,6 +394,23 @@ async function saveAll(){
     console.error(e);
     setStatus('❌ فشل الحفظ: '+e.message,'#FF8A80');
   }
+}
+
+// Compress image to base64 — maxSize px, quality 0-1
+function compressImage(dataUrl, maxSize=400, quality=0.7){
+  return new Promise((resolve)=>{
+    const img = new Image();
+    img.onload = ()=>{
+      const canvas = document.createElement('canvas');
+      let w=img.width, h=img.height;
+      if(w>h){ if(w>maxSize){h=h*maxSize/w;w=maxSize;} }
+      else { if(h>maxSize){w=w*maxSize/h;h=maxSize;} }
+      canvas.width=w; canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.src = dataUrl;
+  });
 }
 
 async function loadFromFirebase(){
