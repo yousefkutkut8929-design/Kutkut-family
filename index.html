@@ -368,17 +368,16 @@ function treeToObj(id){
 
 async function saveAll(){
   setStatus('⏳ جاري الحفظ...','#FFD700');
+  fbSaving = true;
   try {
     const treeObj = treeToObj(0);
     await set(ref(db, DB_TREE), treeObj);
 
     // Save photos as base64 directly in Realtime Database
-    // Compress each photo first to keep size small
     const photoUpdates = {};
     for(const [id, url] of Object.entries(photos)){
       if(!url) continue;
       if(url.startsWith('data:')){
-        // Compress image before saving
         const compressed = await compressImage(url, 400, 0.7);
         photoUpdates[id] = compressed;
         photos[id] = compressed;
@@ -393,6 +392,8 @@ async function saveAll(){
   } catch(e){
     console.error(e);
     setStatus('❌ فشل الحفظ: '+e.message,'#FF8A80');
+  } finally {
+    setTimeout(()=>{ fbSaving = false; }, 2000);
   }
 }
 
@@ -434,27 +435,44 @@ async function loadFromFirebase(){
   }
 }
 
-// Live listener — refresh tree when another user saves
+// Live listener — يحمّل البيانات أول مرة ويراقب التغييرات بعدها
+let fbInitDone = false;
+let fbSaving = false;  // منع الـ listener من تجاوز حفظنا
+let fbResolve = null;
+const fbFirstLoad = new Promise(res => { fbResolve = res; });
+
 onValue(ref(db, DB_TREE), (snapshot)=>{
-  if(!snapshot.exists()) return;
-  if(!fbInitDone) return; // skip first fire (handled by loadFromFirebase)
-  // Re-build tree from new data
-  const newTree = snapshot.val();
+  const newTree = snapshot.exists() ? snapshot.val() : clone(ORIG);
   get(ref(db, DB_PHOTOS)).then(ps=>{
     photos = ps.exists() ? (ps.val()||{}) : {};
-    nodes=[]; idSeq=0;
-    world.querySelectorAll('.nw').forEach(e=>e.remove());
-    buildNodes(newTree, null, 0);
-    layout(); render();
-    setStatus('🔄 تم التحديث من مستخدم آخر','#64B5F6');
-    setTimeout(()=>setStatus('🔥 متصل بـ Firebase','#81C784'),3000);
+    if(!fbInitDone){
+      // أول تحميل — ابدأ الشجرة
+      fbResolve(newTree);
+    } else if(!fbSaving) {
+      // تحديث من مستخدم آخر فقط — أعد بناء الشجرة
+      nodes=[]; idSeq=0;
+      world.querySelectorAll('.nw').forEach(e=>e.remove());
+      buildNodes(newTree, null, 0);
+      layout(); render();
+      setStatus('🔄 تم التحديث من مستخدم آخر','#64B5F6');
+      setTimeout(()=>setStatus('🔥 متصل بـ Firebase','#81C784'),3000);
+    }
   });
 });
-let fbInitDone=false;
 
-// ══════════════════════════════════════════
-// NODE STATE
-// ══════════════════════════════════════════
+async function loadFromFirebase(){
+  setStatus('⏳ جاري التحميل...','#FFD700');
+  try {
+    const treeData = await fbFirstLoad;
+    setStatus('✅ تم التحميل','#81C784');
+    setTimeout(()=>setStatus('🔥 متصل بـ Firebase','#81C784'),2000);
+    return treeData;
+  } catch(e){
+    console.error(e);
+    setStatus('⚠️ خطأ في التحميل','#FFB74D');
+    return clone(ORIG);
+  }
+}
 let nodes=[], idSeq=0;
 // {id, pid, name, depth, x, y, collapsed, el}
 
@@ -875,8 +893,8 @@ window.doDelete     = doDelete;
 // Async startup — load from Firebase first
 (async ()=>{
   const startData = await loadData2();
+  fbInitDone = true;  // set BEFORE initTree so listener won't re-render on our own saves
   initTree(startData);
-  fbInitDone = true;
 })();
 </script>
 </body>
